@@ -1,0 +1,10 @@
+# Cloudflare Tunnel 設定
+# セットアップ後: cloudflared tunnel --config deploy/config.yml run wellsupo-staff
+
+tunnel: wellsupo-staff
+credentials-file: /Users/narikawawataruto/.cloudflared/wellsupo-staff.json
+
+ingress:
+  - hostname: ninaite.chomolungma.co.jp
+    service: http://localhost:3000
+  - service: http_status:404

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>【人員配置表】株式会社ウェルサポ様</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- Login -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <h1>【人員配置表】<br>株式会社ウェルサポ様</h1>
+      <p class="login-sub">ログインして人員配置を確認・管理</p>
+      <form id="loginForm">
+        <div class="form-group">
+          <label>お名前 <span class="required">必須</span></label>
+          <input type="text" id="loginDisplayName" autocomplete="name" placeholder="例：山田 太郎" required>
+          <p class="form-hint">編集履歴に記録されます</p>
+        </div>
+        <div class="form-group">
+          <label>パスワード</label>
+          <div class="password-field">
+            <input type="password" id="loginPassword" autocomplete="current-password" required>
+            <button type="button" class="password-toggle" id="loginPasswordToggle" aria-label="パスワードを表示" title="パスワードを表示">👁️</button>
+          </div>
+        </div>
+        <p id="loginError" class="error-msg"></p>
+        <button type="submit" class="btn primary full">ログイン</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="app hidden">
+    <header class="app-header">
+      <div>
+        <h1>【人員配置表】株式会社ウェルサポ様</h1>
+        <p class="header-sub">特定技能・EPA等の事業所配置をリアルタイム管理</p>
+      </div>
+      <div class="header-actions">
+        <span id="userBadge" class="user-badge"></span>
+        <button id="historyBtn" class="btn">編集履歴</button>
+        <button id="logoutBtn" class="btn">ログアウト</button>
+      </div>
+    </header>
+
+    <div id="readOnlyBanner" class="readonly-banner hidden">
+      閲覧モード — 編集権限がありません。変更はできません。
+    </div>
+
+    <div id="summary" class="summary-grid"></div>
+    <div id="alertBanner" class="alert-banner"></div>
+
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="staff">人員配置表</button>
+      <button class="tab-btn" data-tab="order">事業所並び替え</button>
+    </nav>
+
+    <div id="tabStaff" class="tab-panel">
+    <div class="toolbar" id="toolbar">
+      <button id="addFacilityBtn" class="btn primary">+ 事業所を追加</button>
+      <button id="addWorkerBtn" class="btn">+ 人材を追加</button>
+      <div class="toolbar-spacer"></div>
+      <button id="exportCsvBtn" class="btn">CSV出力</button>
+    </div>
+
+    <div class="sheet-wrap">
+      <table class="sheet" id="sheet">
+        <thead>
+          <tr>
+            <th class="col-facility">事業所名</th>
+            <th class="col-council">協議会</th>
+            <th class="col-num">日本人</th>
+            <th class="col-num">EPA<br>介護福祉士</th>
+            <th class="col-num">在留資格<br>「介護」</th>
+            <th class="col-num">永住者<br>配偶者等</th>
+            <th class="col-num">特定技能<br>人材合計</th>
+            <th class="col-num">余裕<br>定−員</th>
+            <th class="col-status">状態</th>
+            <th class="col-workers">人員（ドラッグで移動）</th>
+            <th class="col-actions"></th>
+          </tr>
+        </thead>
+        <tbody id="sheetBody"></tbody>
+      </table>
+    </div>
+
+    <div class="unassigned-section">
+      <h2>未配置の人材（ここから事業所へドラッグ）</h2>
+      <div class="unassigned-zone" id="unassignedZone"></div>
+    </div>
+    </div>
+
+    <div id="tabOrder" class="tab-panel hidden">
+      <p class="order-hint">ドラッグ＆ドロップ、または ↑↓ ボタンで事業所の表示順を変更できます。</p>
+      <ul class="order-list" id="orderList"></ul>
+      <div class="order-actions" id="orderActions">
+        <button id="saveOrderBtn" class="btn primary">並び順を保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- History Modal -->
+  <div id="historyModal" class="modal-overlay">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>編集履歴</h3>
+        <button class="modal-close" data-close="historyModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <table class="history-table">
+          <thead>
+            <tr><th>日時</th><th>操作者</th><th>操作</th><th>詳細</th></tr>
+          </thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Worker Timeline Modal -->
+  <div id="workerTimelineModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="workerTimelineTitle">配置履歴</h3>
+        <button class="modal-close" data-close="workerTimelineModal">&times;</button>
+      </div>
+      <div class="modal-body" id="workerTimelineBody"></div>
+    </div>
+  </div>
+
+  <!-- Add Facility Modal -->
+  <div id="facilityModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>事業所を追加</h3>
+        <button class="modal-close" data-close="facilityModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>事業所名</label>
+          <input type="text" id="newFacilityName" placeholder="例：グループホームウェルネス〇〇">
+        </div>
+        <div class="form-group">
+          <label>住所</label>
+          <input type="text" id="newFacilityAddress" placeholder="例：〒004-0842 北海道札幌市...">
+        </div>
+        <div class="form-group checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="newFacilityInCouncil">
+            協議会に加入している
+          </label>
+          <p class="form-hint">協議会未加入の事業所には人材を配置できません</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="facilityModal">キャンセル</button>
+        <button id="confirmAddFacility" class="btn primary">追加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit Facility Modal -->
+  <div id="editFacilityModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>事業所を編集</h3>
+        <button class="modal-close" data-close="editFacilityModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="editFacilityId">
+        <div class="form-group">
+          <label>事業所名</label>
+          <input type="text" id="editFacilityName">
+        </div>
+        <div class="form-group">
+          <label>住所</label>
+          <input type="text" id="editFacilityAddress">
+        </div>
+        <div class="form-group checkbox-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="editFacilityInCouncil">
+            協議会に加入している
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="deleteFacilityBtn" class="btn danger-btn">削除</button>
+        <div class="modal-footer-spacer"></div>
+        <button class="btn" data-close="editFacilityModal">キャンセル</button>
+        <button id="confirmEditFacility" class="btn primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Worker Modal -->
+  <div id="workerModal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>人材を追加</h3>
+        <button class="modal-close" data-close="workerModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>氏名</label>
+          <input type="text" id="newWorkerName" placeholder="例：Nguyen Van A">
+        </div>
+        <div class="form-group">
+          <label>国籍</label>
+          <input type="text" id="newWorkerNationality" placeholder="例：インドネシア">
+        </div>
+        <div class="form-group">
+          <label>国旗（自動）</label>
+          <input type="text" id="newWorkerFlag" placeholder="国籍を入力すると自動設定" maxlength="8" readonly class="flag-auto-input">
+        </div>
+        <div class="form-group">
+          <label>配置先事業所</label>
+          <select id="newWorkerFacility" class="facility-select">
+            <option value="">未配置</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" data-close="workerModal">キャンセル</button>
+        <button id="confirmAddWorker" class="btn primary">追加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Users Modal -->
+  <div id="usersModal" class="modal-overlay">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h3>ユーザー管理</h3>
+        <button class="modal-close" data-close="usersModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <table class="history-table" id="usersTable">
+          <thead>
+            <tr><th>表示名</th><th>ユーザー名</th><th>権限</th></tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+        <hr>
+        <h4>新規ユーザー追加</h4>
+        <div class="form-row">
+          <div class="form-group"><label>表示名</label><input type="text" id="newUserDisplayName"></div>
+          <div class="form-group"><label>ユーザー名</label><input type="text" id="newUserUsername"></div>
+          <div class="form-group"><label>パスワード</label><input type="password" id="newUserPassword"></div>
+          <div class="form-group"><label>権限</label>
+            <select id="newUserRole">
+              <option value="viewer">閲覧者</option>
+              <option value="editor">編集者</option>
+              <option value="admin">管理者</option>
+            </select>
+          </div>
+        </div>
+        <p id="userError" class="error-msg"></p>
+        <button id="confirmAddUser" class="btn primary">ユーザーを追加</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
