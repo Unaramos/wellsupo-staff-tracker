@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
+const { loadStore, persistStore, flushStore, setSavingPaused, usesRemoteStorage } = require('./storage');
 
 const DATA_PATH = path.join(__dirname, 'data.json');
 
@@ -190,24 +191,34 @@ function migrateStore() {
   store.workers.forEach((w) => {
     const hasAssignment = store.worker_assignments.some((a) => a.worker_id === w.id);
     if (!hasAssignment && w.facility_id) {
-      startAssignment(w.id, w.facility_id, dateFromTimestamp(w.created_at));
+      if (!store.worker_assignments) store.worker_assignments = [];
+      store.worker_assignments.push({
+        id: nextId.worker_assignments++,
+        worker_id: w.id,
+        facility_id: w.facility_id,
+        facility_name: facilityNameById(w.facility_id),
+        started_at: dateFromTimestamp(w.created_at),
+        ended_at: null,
+      });
     }
   });
-
-  saveStore();
 }
 
 function saveStore() {
-  fs.writeFileSync(DATA_PATH, JSON.stringify(store, null, 2), 'utf8');
+  if (!store) return;
+  persistStore(store);
 }
 
-function initDb() {
-  if (fs.existsSync(DATA_PATH)) {
-    store = JSON.parse(fs.readFileSync(DATA_PATH, 'utf8'));
+async function initDb() {
+  setSavingPaused(true);
+
+  const loaded = await loadStore();
+  if (loaded) {
+    store = loaded;
     migrateStore();
   } else {
     store = defaultStore();
-    saveStore();
+    migrateStore();
   }
 
   nextId = {
@@ -217,6 +228,13 @@ function initDb() {
     edit_history: Math.max(0, ...store.edit_history.map((h) => h.id)) + 1,
     worker_assignments: Math.max(0, ...(store.worker_assignments || []).map((a) => a.id)) + 1,
   };
+
+  setSavingPaused(false);
+  saveStore();
+  await flushStore();
+
+  const backend = usesRemoteStorage() ? 'Upstash Redis（永続）' : 'data.json（ローカル）';
+  console.log(`  データ保存: ${backend}`);
 }
 
 function logHistory(user, action, details) {

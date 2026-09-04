@@ -27,8 +27,6 @@ const COUNT_LABELS = {
   permanent: '永住者・配偶者等',
 };
 
-initDb();
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -328,7 +326,12 @@ app.post('/api/users', requireAdmin, (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  【人員配置表】株式会社ウェルサポ様`);
-  console.log(`  → http://localhost:${PORT}\n`);
+initDb().then(() => {
+  app.listen(PORT, () => {
+    console.log(`\n  【人員配置表】株式会社ウェルサポ様`);
+    console.log(`  → http://localhost:${PORT}\n`);
+  });
+}).catch((err) => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
 });
