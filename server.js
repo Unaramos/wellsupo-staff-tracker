@@ -15,6 +15,10 @@ const {
   reorderFacilities,
   updateFacilityCount,
   getWorkerTimeline,
+  updateWorker,
+  updateAssignment,
+  addAssignment,
+  deleteAssignment,
   WORKER_CATEGORIES,
   CATEGORY_LABELS,
   COUNT_FIELDS,
@@ -268,6 +272,38 @@ app.delete('/api/workers/:id', requireEditor, (req, res) => {
   res.json({ ok: true });
 });
 
+app.patch('/api/workers/:id', requireEditor, (req, res) => {
+  const worker = db.prepare('SELECT * FROM workers WHERE id = ?').get(req.params.id);
+  if (!worker) return res.status(404).json({ error: '人材が見つかりません' });
+
+  const { name, nationality, flag, birth_date } = req.body;
+  if (name !== undefined && !String(name).trim()) {
+    return res.status(400).json({ error: '氏名を入力してください' });
+  }
+
+  const result = updateWorker(worker.id, { name, nationality, flag, birth_date });
+  if (!result) return res.status(404).json({ error: '人材が見つかりません' });
+
+  const changes = [];
+  if (result.prev.name !== result.worker.name) {
+    changes.push(`氏名: ${result.prev.name} → ${result.worker.name}`);
+  }
+  if (result.prev.nationality !== result.worker.nationality) {
+    changes.push(`国籍: ${result.prev.nationality || '（空）'} → ${result.worker.nationality || '（空）'}`);
+  }
+  if ((result.prev.birth_date || '') !== (result.worker.birth_date || '')) {
+    changes.push(`生年月日: ${result.prev.birth_date || '（空）'} → ${result.worker.birth_date || '（空）'}`);
+  }
+
+  logHistory(
+    req.session.user,
+    '人材情報編集',
+    `「${result.worker.name}」: ${changes.join('、') || '情報を更新'}`
+  );
+
+  res.json({ worker: result.worker });
+});
+
 app.get('/api/workers/:id/assignments', requireAuth, (req, res) => {
   const worker = db.prepare('SELECT * FROM workers WHERE id = ?').get(req.params.id);
   if (!worker) return res.status(404).json({ error: '人材が見つかりません' });
@@ -281,10 +317,81 @@ app.get('/api/workers/:id/assignments', requireAuth, (req, res) => {
     .join('→');
 
   res.json({
-    worker: { id: worker.id, name: worker.name, flag: worker.flag },
+    worker: {
+      id: worker.id,
+      name: worker.name,
+      flag: worker.flag,
+      nationality: worker.nationality || '',
+      birth_date: worker.birth_date || '',
+    },
     timeline,
     timelineText,
+    canEdit: req.session.user.role !== 'viewer',
   });
+});
+
+app.post('/api/workers/:id/assignments', requireEditor, (req, res) => {
+  const worker = db.prepare('SELECT * FROM workers WHERE id = ?').get(req.params.id);
+  if (!worker) return res.status(404).json({ error: '人材が見つかりません' });
+
+  const { facility_id, started_at, ended_at } = req.body;
+  if (facility_id) {
+    const facility = db.prepare('SELECT * FROM facilities WHERE id = ?').get(facility_id);
+    if (!facility) return res.status(404).json({ error: '事業所が見つかりません' });
+  }
+
+  const assignment = addAssignment(worker.id, { facility_id, started_at, ended_at });
+  logHistory(
+    req.session.user,
+    '職歴追加',
+    `「${worker.name}」: ${assignment.facility_name}（${assignment.started_at}${assignment.ended_at ? '-' + assignment.ended_at : '-'}）`
+  );
+  res.json({ assignment });
+});
+
+app.patch('/api/workers/:id/assignments/:assignmentId', requireEditor, (req, res) => {
+  const worker = db.prepare('SELECT * FROM workers WHERE id = ?').get(req.params.id);
+  if (!worker) return res.status(404).json({ error: '人材が見つかりません' });
+
+  const { facility_id, started_at, ended_at, facility_name } = req.body;
+  if (facility_id) {
+    const facility = db.prepare('SELECT * FROM facilities WHERE id = ?').get(facility_id);
+    if (!facility) return res.status(404).json({ error: '事業所が見つかりません' });
+  }
+
+  const assignment = updateAssignment(req.params.assignmentId, {
+    facility_id,
+    facility_name,
+    started_at,
+    ended_at,
+  });
+  if (!assignment || assignment.worker_id !== Number(req.params.id)) {
+    return res.status(404).json({ error: '職歴が見つかりません' });
+  }
+
+  logHistory(
+    req.session.user,
+    '職歴編集',
+    `「${worker.name}」: ${assignment.facility_name}（${assignment.started_at}${assignment.ended_at ? '-' + assignment.ended_at : '-'}）`
+  );
+  res.json({ assignment });
+});
+
+app.delete('/api/workers/:id/assignments/:assignmentId', requireEditor, (req, res) => {
+  const worker = db.prepare('SELECT * FROM workers WHERE id = ?').get(req.params.id);
+  if (!worker) return res.status(404).json({ error: '人材が見つかりません' });
+
+  const assignment = deleteAssignment(req.params.assignmentId);
+  if (!assignment || assignment.worker_id !== Number(req.params.id)) {
+    return res.status(404).json({ error: '職歴が見つかりません' });
+  }
+
+  logHistory(
+    req.session.user,
+    '職歴削除',
+    `「${worker.name}」: ${assignment.facility_name}（${assignment.started_at}${assignment.ended_at ? '-' + assignment.ended_at : '-'}）を削除`
+  );
+  res.json({ ok: true });
 });
 
 // --- History (admin only) ---

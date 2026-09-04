@@ -544,23 +544,196 @@ async function showWorkerTimeline(workerId, e) {
   const body = document.getElementById('workerTimelineBody');
   body.innerHTML = '<p class="timeline-loading">読み込み中...</p>';
   try {
-    const { worker, timeline, timelineText } = await api(`/api/workers/${workerId}/assignments`);
-    document.getElementById('workerTimelineTitle').textContent = `${worker.name} の配置履歴`;
-    if (!timeline.length) {
-      body.innerHTML = '<p class="timeline-empty">配置履歴がありません</p>';
-      return;
-    }
-    body.innerHTML = `
-      <p class="timeline-summary">${esc(timelineText)}</p>
-      <ul class="timeline-list">
-        ${timeline.map((a) => {
-          const range = a.ended_at ? `${a.started_at} 〜 ${a.ended_at}` : `${a.started_at} 〜 現在`;
-          return `<li><strong>${esc(a.facility_name)}</strong><span class="timeline-dates">${esc(range)}</span></li>`;
-        }).join('')}
-      </ul>
-    `;
+    const data = await api(`/api/workers/${workerId}/assignments`);
+    renderWorkerDetailModal(data);
   } catch (err) {
     body.innerHTML = `<p class="timeline-error">${esc(err.message)}</p>`;
+  }
+}
+
+function toDateInputValue(displayDate) {
+  if (!displayDate) return '';
+  const m = String(displayDate).match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/);
+  if (!m) return '';
+  return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+}
+
+function fromDateInputValue(isoDate) {
+  if (!isoDate) return '';
+  const [y, m, d] = isoDate.split('-');
+  if (!y || !m || !d) return '';
+  return `${Number(y)}/${Number(m)}/${d}`;
+}
+
+function facilityOptionsHtml(selectedId) {
+  const opts = [`<option value="">未配置</option>`]
+    .concat(state.facilities.map((f) =>
+      `<option value="${f.id}" ${Number(selectedId) === f.id ? 'selected' : ''}>${esc(f.name)}</option>`
+    ));
+  return opts.join('');
+}
+
+function renderWorkerDetailModal({ worker, timeline, timelineText, canEdit }) {
+  const body = document.getElementById('workerTimelineBody');
+  document.getElementById('workerTimelineTitle').textContent = `${worker.name} の情報・職歴`;
+  const editable = canEdit && state.canEdit;
+
+  if (!editable) {
+    body.innerHTML = `
+      <section class="worker-detail-section">
+        <h4>本人情報</h4>
+        <dl class="worker-profile-readonly">
+          <div><dt>氏名</dt><dd>${esc(worker.name)}</dd></div>
+          <div><dt>生年月日</dt><dd>${esc(worker.birth_date || '未設定')}</dd></div>
+          <div><dt>国籍</dt><dd>${esc(worker.nationality || '未設定')} ${worker.flag || ''}</dd></div>
+        </dl>
+      </section>
+      <section class="worker-detail-section">
+        <h4>職歴・配置履歴</h4>
+        ${timelineText ? `<p class="timeline-summary">${esc(timelineText)}</p>` : '<p class="timeline-empty">職歴がありません</p>'}
+        <ul class="timeline-list">
+          ${timeline.map((a) => {
+            const range = a.ended_at ? `${a.started_at} 〜 ${a.ended_at}` : `${a.started_at} 〜 現在`;
+            return `<li><strong>${esc(a.facility_name)}</strong><span class="timeline-dates">${esc(range)}</span></li>`;
+          }).join('') || ''}
+        </ul>
+      </section>
+    `;
+    return;
+  }
+
+  body.innerHTML = `
+    <section class="worker-detail-section">
+      <h4>本人情報</h4>
+      <div class="form-group">
+        <label>氏名</label>
+        <input type="text" id="editWorkerName" value="${esc(worker.name)}">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>生年月日 <span class="optional">任意</span></label>
+          <input type="date" id="editWorkerBirthDate" value="${toDateInputValue(worker.birth_date)}">
+        </div>
+        <div class="form-group">
+          <label>国籍 <span class="optional">任意</span></label>
+          <input type="text" id="editWorkerNationality" value="${esc(worker.nationality || '')}" placeholder="例：インドネシア">
+        </div>
+      </div>
+      <p class="form-hint">国籍を変更すると国旗も自動更新されます</p>
+      <div class="modal-inline-actions">
+        <button type="button" class="btn primary" id="saveWorkerProfileBtn">本人情報を保存</button>
+      </div>
+    </section>
+
+    <section class="worker-detail-section">
+      <h4>職歴・配置履歴</h4>
+      ${timelineText ? `<p class="timeline-summary">${esc(timelineText)}</p>` : '<p class="timeline-empty">職歴がありません</p>'}
+      <div id="assignmentEditList" class="assignment-edit-list">
+        ${timeline.map((a) => `
+          <div class="assignment-edit-row" data-assignment-id="${a.id}">
+            <select class="asg-facility facility-select">${facilityOptionsHtml(a.facility_id)}</select>
+            <input type="date" class="asg-start" value="${toDateInputValue(a.started_at)}" title="開始日">
+            <input type="date" class="asg-end" value="${toDateInputValue(a.ended_at)}" title="終了日（空＝現在）">
+            <button type="button" class="btn btn-sm asg-save" title="この職歴を保存">保存</button>
+            <button type="button" class="btn btn-sm danger-btn asg-delete" title="削除">&times;</button>
+          </div>
+        `).join('') || '<p class="timeline-empty">職歴がありません。下から追加できます。</p>'}
+      </div>
+
+      <div class="assignment-add-box">
+        <p class="assignment-add-label">職歴を追加</p>
+        <div class="assignment-edit-row">
+          <select id="newAsgFacility" class="facility-select">${facilityOptionsHtml('')}</select>
+          <input type="date" id="newAsgStart" title="開始日">
+          <input type="date" id="newAsgEnd" title="終了日（空＝現在）">
+          <button type="button" class="btn primary btn-sm" id="addAssignmentBtn">追加</button>
+        </div>
+      </div>
+    </section>
+  `;
+
+  document.getElementById('saveWorkerProfileBtn').onclick = () => saveWorkerProfile(worker.id);
+  document.getElementById('editWorkerNationality').addEventListener('input', (ev) => {
+    // no UI flag field; flag updates on save via flagForCountry
+    ev.target.dataset.flagDirty = '1';
+  });
+
+  body.querySelectorAll('.assignment-edit-row[data-assignment-id]').forEach((row) => {
+    const id = Number(row.dataset.assignmentId);
+    row.querySelector('.asg-save').onclick = () => saveAssignmentRow(worker.id, id, row);
+    row.querySelector('.asg-delete').onclick = () => deleteAssignmentRow(worker.id, id);
+  });
+  document.getElementById('addAssignmentBtn').onclick = () => addAssignmentRow(worker.id);
+}
+
+async function saveWorkerProfile(workerId) {
+  const name = document.getElementById('editWorkerName').value.trim();
+  const nationality = document.getElementById('editWorkerNationality').value.trim();
+  const birth_date = fromDateInputValue(document.getElementById('editWorkerBirthDate').value);
+  if (!name) { alert('氏名を入力してください'); return; }
+  const flag = flagForCountry(nationality) || (nationality ? '🏳️' : '');
+  try {
+    await api(`/api/workers/${workerId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name, nationality, birth_date, flag }),
+    });
+    await loadData();
+    await showWorkerTimeline(workerId);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function saveAssignmentRow(workerId, assignmentId, row) {
+  const facility_id = row.querySelector('.asg-facility').value || null;
+  const started_at = fromDateInputValue(row.querySelector('.asg-start').value);
+  const ended_at = fromDateInputValue(row.querySelector('.asg-end').value) || null;
+  if (!started_at) { alert('開始日を入力してください'); return; }
+  try {
+    await api(`/api/workers/${workerId}/assignments/${assignmentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        facility_id: facility_id ? Number(facility_id) : null,
+        started_at,
+        ended_at,
+      }),
+    });
+    await loadData();
+    await showWorkerTimeline(workerId);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function deleteAssignmentRow(workerId, assignmentId) {
+  if (!confirm('この職歴を削除しますか？')) return;
+  try {
+    await api(`/api/workers/${workerId}/assignments/${assignmentId}`, { method: 'DELETE' });
+    await loadData();
+    await showWorkerTimeline(workerId);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function addAssignmentRow(workerId) {
+  const facility_id = document.getElementById('newAsgFacility').value || null;
+  const started_at = fromDateInputValue(document.getElementById('newAsgStart').value);
+  const ended_at = fromDateInputValue(document.getElementById('newAsgEnd').value) || null;
+  if (!started_at) { alert('開始日を入力してください'); return; }
+  try {
+    await api(`/api/workers/${workerId}/assignments`, {
+      method: 'POST',
+      body: JSON.stringify({
+        facility_id: facility_id ? Number(facility_id) : null,
+        started_at,
+        ended_at,
+      }),
+    });
+    await loadData();
+    await showWorkerTimeline(workerId);
+  } catch (err) {
+    alert(err.message);
   }
 }
 

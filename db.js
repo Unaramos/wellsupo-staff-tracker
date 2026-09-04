@@ -114,6 +114,93 @@ function getWorkerTimeline(workerId) {
     .sort((a, b) => a.id - b.id);
 }
 
+function getWorkerById(workerId) {
+  return store.workers.find((w) => w.id === Number(workerId)) || null;
+}
+
+function updateWorker(workerId, updates) {
+  const w = store.workers.find((x) => x.id === Number(workerId));
+  if (!w) return null;
+  const prev = {
+    name: w.name,
+    nationality: w.nationality,
+    flag: w.flag,
+    birth_date: w.birth_date || '',
+  };
+  if (updates.name !== undefined) w.name = String(updates.name).trim();
+  if (updates.nationality !== undefined) w.nationality = String(updates.nationality).trim();
+  if (updates.flag !== undefined) w.flag = String(updates.flag).trim() || '🏳️';
+  if (updates.birth_date !== undefined) w.birth_date = String(updates.birth_date || '').trim();
+  saveStore();
+  return { worker: w, prev };
+}
+
+function syncWorkerFacilityFromAssignments(workerId) {
+  const worker = store.workers.find((w) => w.id === Number(workerId));
+  if (!worker) return;
+  const current = getWorkerTimeline(workerId).filter((a) => !a.ended_at).sort((a, b) => b.id - a.id)[0];
+  worker.facility_id = current?.facility_id || null;
+  saveStore();
+}
+
+function updateAssignment(assignmentId, updates) {
+  if (!store.worker_assignments) return null;
+  const a = store.worker_assignments.find((x) => x.id === Number(assignmentId));
+  if (!a) return null;
+
+  if (updates.facility_id !== undefined) {
+    const fid = updates.facility_id === null || updates.facility_id === '' ? null : Number(updates.facility_id);
+    a.facility_id = fid;
+    a.facility_name = facilityNameById(fid);
+  }
+  if (updates.facility_name !== undefined && updates.facility_id === undefined) {
+    a.facility_name = String(updates.facility_name).trim() || a.facility_name;
+  }
+  if (updates.started_at !== undefined) a.started_at = String(updates.started_at).trim() || a.started_at;
+  if (updates.ended_at !== undefined) {
+    const end = updates.ended_at === null || updates.ended_at === '' ? null : String(updates.ended_at).trim();
+    a.ended_at = end;
+  }
+  syncWorkerFacilityFromAssignments(a.worker_id);
+  saveStore();
+  return a;
+}
+
+function addAssignment(workerId, { facility_id, started_at, ended_at }) {
+  const worker = store.workers.find((w) => w.id === Number(workerId));
+  if (!worker) return null;
+  if (!store.worker_assignments) store.worker_assignments = [];
+
+  const fid = facility_id === null || facility_id === '' || facility_id === undefined
+    ? null
+    : Number(facility_id);
+  const assignment = {
+    id: nextId.worker_assignments++,
+    worker_id: Number(workerId),
+    facility_id: fid,
+    facility_name: facilityNameById(fid),
+    started_at: (started_at && String(started_at).trim()) || todayDate(),
+    ended_at: ended_at === null || ended_at === '' || ended_at === undefined
+      ? null
+      : String(ended_at).trim(),
+  };
+  store.worker_assignments.push(assignment);
+  syncWorkerFacilityFromAssignments(workerId);
+  saveStore();
+  return assignment;
+}
+
+function deleteAssignment(assignmentId) {
+  if (!store.worker_assignments) return null;
+  const a = store.worker_assignments.find((x) => x.id === Number(assignmentId));
+  if (!a) return null;
+  const workerId = a.worker_id;
+  store.worker_assignments = store.worker_assignments.filter((x) => x.id !== a.id);
+  syncWorkerFacilityFromAssignments(workerId);
+  saveStore();
+  return a;
+}
+
 function now() {
   return new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
 }
@@ -145,6 +232,7 @@ function defaultStore() {
       name: w.name,
       flag: w.flag,
       nationality: w.nationality,
+      birth_date: '',
       category: 'care_visa',
       facility_id: null,
       created_at: now(),
@@ -173,6 +261,7 @@ function migrateStore() {
       name: w.name,
       flag: w.flag,
       nationality: w.nationality,
+      birth_date: '',
       category: 'care_visa',
       facility_id: null,
       created_at: now(),
@@ -183,6 +272,7 @@ function migrateStore() {
         const match = DEFAULT_WORKERS.find((d) => d.name === w.name);
         w.flag = match?.flag || '🏳️';
       }
+      if (w.birth_date === undefined) w.birth_date = '';
     });
   }
 
@@ -191,9 +281,9 @@ function migrateStore() {
   store.workers.forEach((w) => {
     const hasAssignment = store.worker_assignments.some((a) => a.worker_id === w.id);
     if (!hasAssignment && w.facility_id) {
-      if (!store.worker_assignments) store.worker_assignments = [];
+      const nextAsgId = Math.max(0, ...store.worker_assignments.map((a) => a.id)) + 1;
       store.worker_assignments.push({
-        id: nextId.worker_assignments++,
+        id: nextAsgId,
         worker_id: w.id,
         facility_id: w.facility_id,
         facility_name: facilityNameById(w.facility_id),
@@ -402,6 +492,7 @@ const db = {
             name,
             flag: flag || '🏳️',
             nationality,
+            birth_date: '',
             category,
             facility_id: facility_id || null,
             created_at: now(),
@@ -443,6 +534,11 @@ module.exports = {
   reorderFacilities,
   updateFacilityCount,
   getWorkerTimeline,
+  getWorkerById,
+  updateWorker,
+  updateAssignment,
+  addAssignment,
+  deleteAssignment,
   moveWorkerAssignment,
   WORKER_CATEGORIES,
   CATEGORY_LABELS,
